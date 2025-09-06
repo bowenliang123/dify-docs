@@ -1,0 +1,270 @@
+---
+dimensions:
+  type:
+    primary: reference
+    detail: examples
+  level: intermediate
+standard_title: Markdown Exporter 工具插件
+language: zh
+title: Markdown Exporter 工具插件
+description: |
+    作者 [bowenliang123](https://github.com/bowenliang123).
+    以 [Markdown Exporter](https://marketplace.dify.ai/plugins/bowenliang123/md_exporter) 插件
+    为例, 这个文档将展示我们如何构思、构建、逐步调试一个工具插件。
+---
+
+# 构思理念
+
+“研究、评估、重构。”
+
+在构建插件之前，我们需要对其定义有清晰的概念。
+
+https://marketplace.dify.ai/plugins/bowenliang123/md_exporter 插件旨在将 Markdown 文本导出为多种格式，例如 PDF、HTML、DOCX 等。
+提前的设计理念将是将其列入 https://marketplace.dify.ai 最受欢迎插件之一的关键。
+
+并且它满足以下范围和要求：
+
+### **确定要构建的 Dify 插件类型**
+    - 本例中为 /plugin-dev-en/0222-tool-plugin。它需要较高的代码技能，并利用现有的 Python 运行时库和 SDK
+来完成转换、生成等特定任务，同时确保最小化差距，并享受第三方库在版本更新中的维护。
+
+### **提供独特的用户价值**
+    - 填补将最终内容交付给最终用户的最后一公里空白，
+进入下游应用程序或流程，这些流程在现实生活和系统中具有具体的价值交付。
+
+### **合适的方法和库**
+    - 花时间研究并选择适用于特定任务的 Python 库，
+例如，决定使用 Pandas 从 HTML 文本中提取 Markdown 表格并生成文件，而不是手动进行原始提取。
+- 回到 Dify 插件系统，动手实践 /plugin-dev-en/0211-getting-started-dify-tool。
+
+# 构建
+
+### 搭建骨架
+
+- 对于通用工具开发，使用 `dify` CLI 通过模板构建工具插件。
+```
+dify plugin init
+```
+
+为了演示真实的插件实践，我们将 https://github.com/bowenliang123/md_exporter
+GitHub 仓库克隆或分叉到本地。
+
+```
+git clone git@github.com:bowenliang123/md_exporter.git
+```
+
+当所有文件结构准备就绪后，我们重点关注并反复访问关键文件和文件夹：
+- `manifest.yaml` 决定插件的元数据
+- `provider/provider.yaml` 为用户视角提供分组工具的入口
+- 工具按 `md_to_XXXX` 文件夹分组，每个工具一个文件夹
+- `utils` 用于存放通用的辅助脚本
+
+对于辅助文档文件，如 `README.md`、`GUIDE.md`、`LICENSE.txt`、`PRIVACY.md`，它们
+对于用户理解插件及其政策也至关重要。
+
+```
+.
+├── LICENSE.txt
+├── PRIVACY.md
+├── README.md
+├── _assets
+│   └── XXX.png
+├── main.py
+├── manifest.yaml
+├── provider
+│   ├── md_exporter.py
+│   └── md_exporter.yaml
+├── requirements.txt
+└── tools
+    ├── ...
+    ├── md_to_csv
+    ├── md_to_docx
+    ├── md_to_html
+    ├── md_to_json
+    ├── md_to_md
+    ├── md_to_png
+    ├── md_to_pptx
+    ├── md_to_xlsx
+    └── utils
+```
+
+### 工具清单准备
+
+1. 创建工具文件夹，例如 `md_to_pdf`
+
+2. 准备清单文件
+ - 在 `md_to_pdf/md_to_pdf.yaml` 中添加工具清单文件
+ - 将工具清单文件添加到 `provider/md_exporter.py`
+```
+tools:
+  - tools/md_to_pdf/md_to_pdf.yaml
+```
+
+3. 在 `md_to_pdf/md_to_pdf.py` 中创建工具逻辑
+```
+class MarkdownToPdfTool(Tool):
+    logger = get_logger(__name__)
+
+    def _invoke(self, tool_parameters: dict) -> Generator[ToolInvokeMessage, None, None]:
+        ...
+```
+
+并通过将其添加到提供者脚本 `provider/md_exporter.py` 中来确保它可以被导入
+```python
+from tools.md_to_pdf.md_to_pdf import MarkdownToPdfTool
+
+class MdExporterProvider(ToolProvider):
+    def _validate_credentials(self, credentials: dict[str, Any]) -> None:
+        try:
+            """
+            在此处实现您的验证逻辑
+            """
+            tools = [
+                MarkdownToPptxTool,
+                ...,
+            ]
+            for tool in tools:
+                tool.from_credentials({})
+```
+
+### 工具实现
+
+#### 整体逻辑
+以 `md_to_pdf` 为例，核心逻辑分为两个步骤：
+
+- 步骤 0：正确解析参数，包括输入的 Markdown 文本和输出控制配置（如输出文件名）
+
+- 步骤 1：使用 `markdown` 库将 Markdown 文本转换为 HTML 文本
+
+- 步骤 2：使用 `xhtml2pdf` 库将 HTML 文本转换为 PDF 文件。
+
+#### 准备库
+在 `requirements.txt` 文件中添加所有必需的库：
+```
+dify_plugin ~= X.X.X
+markdown ~= X.X.X
+xhtml2pdf ~= X.X.X
+```
+并运行 `pip install -r requirements.txt` 来安装它们。
+
+#### 消息生成
+
+对于结果生成，需要反馈各种消息或异常给用户。
+- `self.create_blob_message()` 用于发送二进制文件
+  - 二进制文件的 blob 数组
+  - 使用 `metadata` 字段指定 MIME 类型和自定义输出文件名
+- `self.create_text_message()` 用于发送警告或结果的文本消息
+
+#### 最终代码
+
+```python
+class MarkdownToPdfTool(Tool):
+    logger = get_logger(__name__)
+
+    def _invoke(self, tool_parameters: dict) -> Generator[ToolInvokeMessage, None, None]:
+        """
+        调用工具
+        """
+        from xhtml2pdf import pisa
+
+        # 获取参数
+        md_text = get_md_text(tool_parameters, is_strip_wrapper=True)
+        try:
+            html_str = self._convert_to_html(md_text)
+            result_file_bytes = pisa.CreatePDF(
+                src=html_str,
+                dest_bytes=True,  # 返回生成的字节
+                encoding="utf-8",
+                capacity=500 * 1024 * 1024,  # 500 MB 容量限制
+            )
+        except Exception as e:
+            self.logger.exception("文件转换失败")
+            yield self.create_text_message(f"将 Markdown 文本转换为 PDF 文件失败，错误：{str(e)}")
+            return
+
+        yield self.create_blob_message(
+            blob=result_file_bytes,
+            meta=get_meta_data(
+                mime_type=MimeType.PDF,
+                output_filename=tool_parameters.get("output_filename"),
+            ),
+        )
+        return
+
+```
+# 调试
+
+### 设置开发配置
+
+从 Dify 应用的 `/plugins` 页面获取 URL 和密钥：
+<img src="/images/md-exporter-1.png" className="mr-auto" />
+
+设置 `.env` 文件内容如下：
+```
+INSTALL_METHOD=remote
+REMOTE_INSTALL_URL=localhost:5003
+REMOTE_INSTALL_KEY=b9eccXXX-XXXX-XXXX-XXXX-XXXXXXXX
+```
+
+### 调试和测试插件
+
+1. 运行脚本 `python -m main` 将本地插件注册到 Dify 服务：
+
+```
+$ python -m main
+
+{"event": "log", "data": {"level": "INFO", "message": "Installed tool: md_exporter", "timestamp": 1757060702.2690392}}
+INFO:dify_plugin.plugin:Installed tool: md_exporter
+```
+
+2. 现在插件已注册到 Dify，并准备好进行进一步的远程调试：
+
+<img src="/images/tool-md-exporter-2.png" className="mr-auto" />
+
+3. 构建工作流或聊天流来测试工具
+<img src="/images/tool-md-exporter-3.png" className="mr-auto" />
+
+4. 使用 Dify 应用中的 `Preview` 按钮演示工具用法和结果
+
+<img src="/images/tool-md-exporter-4.png" className="mr-auto" />
+## 相关资源
+
+- [插件开发基本概念](/plugin-dev-zh/0111-getting-started-dify-plugin) - 全面了解Dify插件开发
+- [插件开发入门指南](/plugin-dev-zh/0211-getting-started-dify-tool) - 从零开始开发插件
+- [开发 Extension 插件](/plugin-dev-zh/9231-extension-plugin) - 了解扩展插件开发
+- [反向调用 Dify 服务](/plugin-dev-zh/9241-reverse-invocation) - 了解如何调用 Dify 平台能力
+- [反向调用 App](/plugin-dev-zh/9242-reverse-invocation-app) - 了解如何调用平台内的 App
+- [发布插件](/plugin-dev-zh/0321-release-overview) - 学习发布流程
+- [发布至 Dify Marketplace](/plugin-dev-zh/0322-release-to-dify-marketplace) - 市场发布指南
+- [端点详细定义](/plugin-dev-zh/0432-endpoint) - Endpoint 详细定义
+
+### 参考阅读
+
+如果你想要查看完整 Dify 插件的项目代码，请前往 [GitHub 代码仓库](https://github.com/langgenius/dify-plugins)。除此之外，你可以看到其它插件的完整代码与具体细节。
+
+如果想要了解更多插件，请参考以下内容。
+
+**快速开始：**
+
+* [开发 Extension 插件](/plugin-dev-zh/9231-extension-plugin)
+* [开发 Model 插件](/plugin-dev-zh/0211-getting-started-new-model)
+* [Bundle 类型插件：将多个插件打包](/plugin-dev-zh/9241-bundle)
+
+**插件接口文档：**
+
+* [通过清单文件定义插件信息](/plugin-dev-zh/0411-plugin-info-by-manifest) - Manifest 结构
+* [端点](/plugin-dev-zh/0432-endpoint) - Endpoint 详细定义
+* [反向调用](/plugin-dev-zh/9241-reverse-invocation) - 反向调用 Dify 能力
+* [通用规范](/plugin-dev-zh/0411-general-specifications) - 工具规范
+* [模型架构](/plugin-dev-zh/0412-model-schema) - 模型
+
+{/*
+Contributing Section
+DO NOT edit this section!
+It will be automatically generated by the script.
+*/}
+
+---
+
+[编辑此页面](https://github.com/langgenius/dify-docs/edit/main/plugin-dev-zh/0432-develop-a-slack-bot-plugin.mdx) | [提交问题](https://github.com/langgenius/dify-docs/issues/new?template=docs.yml)
+

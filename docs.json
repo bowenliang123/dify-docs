@@ -534,6 +534,7 @@
                                         "pages": [
                                             "plugin-dev-zh/0431-example-overview-and-index",
                                             "plugin-dev-zh/0432-develop-a-slack-bot-plugin",
+                                            "plugin-dev-zh/0433-tool-md-exporter",
                                             "plugin-dev-zh/0432-endpoint"
                                         ]
                                     }
